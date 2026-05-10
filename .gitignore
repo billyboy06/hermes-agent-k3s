@@ -1,0 +1,13 @@
+.DS_Store
+*.log
+__pycache__/
+*.pyc
+.venv/
+venv/
+.omc/
+
+# Local test artifacts
+skills-k3s-recovered/
+TEST-LOCAL.md
+GAP-ANALYSIS.md
+FIX-PLAN.md
