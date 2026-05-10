@@ -108,9 +108,11 @@ If `targeted_listings` is empty after all queries: invoke `station-power-managem
 
 ### Step 5 — Phase A triage  [MANDATORY SKILL CALL]
 
-REQUIRED ACTION: invoke skill `dealradar-analyst` mode `triage` with `targeted_listings` from Step 4b. The skill returns a JSON shortlist of up to 5 items.
+REQUIRED ACTION: invoke skill `dealradar-analyst` mode `triage` with `targeted_listings` from Step 4b.
 
-DO NOT compose the Phase A prompt manually. The system prompt lives inside the `dealradar-analyst` skill — using it ensures the FAST mode prefix and JSON contract.
+**You are the analyst** — you DO NOT need to call ia-commander or execute_code for this step. Apply the triage rules from the `dealradar-analyst` skill directly using your own intelligence and return the JSON shortlist.
+
+DO NOT construct a Python script that calls http://192.168.1.20:8090 — that creates a broken LLM-in-LLM loop and wastes tokens. Just analyze the listings and output the shortlist JSON.
 
 If the shortlist is empty: invoke `station-power-management` mode `release`, exit cleanly.
 
@@ -126,7 +128,7 @@ REQUIRED ACTION:
 1. Invoke skill `dealradar-pricer` with the item + comparables → returns `estimated_resale + confidence + recommended_platform`.
 2. Invoke skill `dealradar-analyst` mode `verdict` with the item + pricer output → returns `verdict + margin_breakdown + reasoning + red_flags`.
 
-DO NOT compose the Phase B prompt manually. The DEEP mode prefix and threshold logic live inside `dealradar-analyst`.
+**You are the analyst** — produce the verdict using your own intelligence. DO NOT call ia-commander for this step. The verdict is YOUR reasoning applied to the item + comparables data.
 
 ### Step 7b — Upsert shortlist items to DB  [DIRECT HTTP — once per shortlist item]
 

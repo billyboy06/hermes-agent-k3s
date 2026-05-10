@@ -143,8 +143,12 @@ Réponds TOUJOURS en JSON valide. Pas de prose autour, parser strict côté `dea
 
 ## Tools utilisés
 
-- `execute_code` — Python pour parsing batches 200 listings, validation JSON, scoring
-- `terminal` — curl pour fetcher capital_eur + velocity_table
+- `terminal` — curl pour fetcher capital_eur + velocity_table depuis l'API dealradar (GET /api/config/, GET /api/stats/)
+- **Aucun execute_code, aucun appel ia-commander.** Tu es déjà l'intelligence — applique les règles ci-dessus et retourne le JSON directement dans ta réponse.
+
+## Important — ne pas appeler ia-commander
+
+Tu tournies SUR qwen36 via Hermes. Il n'y a pas de LLM externe à appeler. Le triage et le verdict sont produits par TON propre raisonnement, pas par un curl vers 192.168.1.20:8090. Utiliser execute_code pour construire un prompt et envoyer à un LLM externe est une boucle inutile et cassée.
 
 ## See also
 
