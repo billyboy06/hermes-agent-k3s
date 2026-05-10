@@ -1,7 +1,7 @@
 ---
 name: dealradar-triage
-description: Run a full dealradar Phase A + Phase B cycle — fetch latest listings, triage 200 → shortlist 5 via Qwen 3.6 35B on station IA, produce ACHETER/VÉRIFIER/PASSER verdicts with margin estimates, persist to dealradar API, push Telegram top deals.
-version: 0.2.0
+description: Run a full dealradar Phase A + Phase B cycle — generate targeted niche queries via strategist, scrape 10-15 keyword searches across LBC/Vinted/Wallapop, triage up to 200 targeted listings via Qwen 3.6 35B on station IA, produce ACHETER/VÉRIFIER/PASSER verdicts with margin estimates, persist to dealradar API, push Telegram top deals.
+version: 0.3.0
 platforms: [linux, macos]
 metadata:
   hermes:
@@ -74,17 +74,41 @@ This is the only place a direct curl is justified — ia-commander has no skill 
 
 On non-2xx response: defer cycle 60 min, invoke `station-power-management` mode `release`, exit.
 
-### Step 4 — Fetch fresh listings  [DIRECT HTTP — ONE COMMAND]
+### Step 4 — Generate targeted search queries  [MANDATORY SKILL CALL]
 
-REQUIRED ACTION: a single `terminal` call: `curl -sS -u "$AUTH" "$DEALRADAR_API/api/listings/recent?since=<since>&limit=200"`.
+REQUIRED ACTION: invoke skill `dealradar-strategist`.
 
-If the response array is empty: invoke `station-power-management` mode `release`, exit cleanly.
+The skill fetches current capital, active strategies, velocity table, and learner feedback, then returns:
+```
+{
+  "queries": [
+    {"platform": "leboncoin", "keywords": "marantz ampli vintage", "price_max": 240, "city": "Nice"},
+    {"platform": "vinted", "keywords": "seiko automatique", "price_max": 240},
+    ...
+  ],
+  "capital_used": 300,
+  "rationale": "..."
+}
+```
+
+On empty `queries` array: invoke `station-power-management` mode `release`, exit cleanly.
+
+### Step 4b — Execute targeted scrapes  [DIRECT HTTP — one call per query]
+
+REQUIRED ACTION: for each query in `queries`, execute one `terminal` call:
+```
+curl -sS -X POST -u "$AUTH" -H "Content-Type: application/json" \
+  -d '{"keywords":"<keywords>","platforms":["<platform>"],"city":"<city>","price_max":<price_max>}' \
+  "$DEALRADAR_API/api/search"
+```
+
+Collect all returned listings. Deduplicate by `url` field (same listing may appear across queries). Cap total at 200 — if exceeded, keep a balanced sample: sort by `price ASC` within each platform, then interleave platforms so no single platform dominates. Store as `targeted_listings`.
+
+If `targeted_listings` is empty after all queries: invoke `station-power-management` mode `release`, exit cleanly.
 
 ### Step 5 — Phase A triage  [MANDATORY SKILL CALL]
 
-REQUIRED ACTION:
-1. Invoke skill `dealradar-strategist` to get the active strategies and capital ladder. The skill returns the search constraints and category whitelist/bans.
-2. Invoke skill `dealradar-analyst` mode `triage` with the 200 listings and the constraints from step 5.1. The skill returns a JSON shortlist of up to 5 items.
+REQUIRED ACTION: invoke skill `dealradar-analyst` mode `triage` with `targeted_listings` from Step 4b. The skill returns a JSON shortlist of up to 5 items.
 
 DO NOT compose the Phase A prompt manually. The system prompt lives inside the `dealradar-analyst` skill — using it ensures the FAST mode prefix and JSON contract.
 
@@ -104,11 +128,33 @@ REQUIRED ACTION:
 
 DO NOT compose the Phase B prompt manually. The DEEP mode prefix and threshold logic live inside `dealradar-analyst`.
 
+### Step 7b — Upsert shortlist items to DB  [DIRECT HTTP — once per shortlist item]
+
+REQUIRED: `POST /api/search` (Step 4b) returns listings WITHOUT a database `id`. Before calling `/api/analyze` you MUST persist each shortlist item to get its DB id.
+
+For each shortlist item, call:
+```
+curl -sS -X POST $DEALRADAR_API/api/listings/upsert \
+  -H "Content-Type: application/json" \
+  -d '{"title":"<title>","price":<price>,"platform":"<platform>","url":"<url>","image_url":"<image_url>","city":"<city>"}'
+```
+Returns `{"id": <int>, "created": true|false}`. Use this `id` as `listing_id` in Step 8.
+
 ### Step 8 — Persist verdicts  [DIRECT HTTP — ONE COMMAND]
 
-REQUIRED ACTION: `curl -sS -X POST $DEALRADAR_API/api/analyze` with the verdicts array.
+REQUIRED ACTION: `curl -sS -X POST $DEALRADAR_API/api/analyze` with the verdicts wrapped in a `deals` key.
+
+Payload format — EXACTLY this shape, not a bare array:
+```
+{"deals": [
+  {"listing_id": <int from step 7b>, "verdict": "ACHETER|VERIFIER|PASSER", "estimated_value": <float>, "margin_net": <float>, "confidence": <float>, "reasoning": "<str>"},
+  ...
+]}
+```
 
 The backend validates server-side (margin ≥ 30€, conf ≥ 0.7 for ACHETER) and downgrades automatically. Do not pre-validate in Hermes.
+
+⚠️ NEVER send a bare JSON array `[{...}]` — the API expects a dict with a `deals` key and will return 422 otherwise.
 
 ### Step 9 — Notify  [MANDATORY SKILL CALL]
 
@@ -138,8 +184,8 @@ REQUIRED ACTION: append to Hermes agent memory: `cycle_id, timestamp, shortlist_
 
 ## Tools used (Hermes runtime)
 
-- `terminal` — for the 3 direct HTTP calls (Step 3, 4, 8)
-- Skill invocation — for Steps 1, 2, 5, 6, 7, 9, 10
+- `terminal` — for direct HTTP calls (Step 3, 4b × N queries, Step 8)
+- Skill invocation — for Steps 1, 2, 4, 5, 6, 7, 9, 10
 - Hermes memory tool — for Step 11
 
 `execute_code` Python is NOT to be used in this skill. If you need to compose a complex prompt, that means a sub-skill is missing — flag it to the user, do not work around it.

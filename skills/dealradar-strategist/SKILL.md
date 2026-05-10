@@ -1,7 +1,7 @@
 ---
 name: dealradar-strategist
 description: Décide quelles requêtes de recherche lancer sur les plateformes marketplace (LBC, Vinted, Wallapop, eBay) en fonction du capital disponible, des stratégies actives et des niches whitelistées.
-version: 0.2.0
+version: 0.3.0
 platforms: [linux, macos]
 metadata:
   hermes:
@@ -67,10 +67,18 @@ Si une stratégie utilisateur est active (créée via `dealradar-strategy-create
 - Peut **étendre** temporairement la whitelist (ex: stratégie "saison ski" active oct-nov ajoute matériel ski)
 - Peut **réduire** la zone géo (ex: "Nice 30 km" pour main-propre rapide)
 
-## Zone géographique
+## Zone géographique et expédition
 
-- Défaut : Nice et alentours PACA (Alpes-Maritimes)
-- Override possible via stratégie active
+Chaque article appartient à l'une de ces deux catégories :
+
+| Catégorie | `ship_ok` | Logique LBC |
+|---|---|---|
+| **Main-propre uniquement** | `false` | requêtes LBC avec `city: "Nice"` seulement |
+| **Expédiable** | `true` | requêtes LBC avec `city: "Nice"` + `city: "Paris"` + `city: "Lyon"` |
+
+**Règle `ship_ok = true`** : appliquer quand l'article est petit/léger et que l'expédition est économiquement viable (coût envoi < 10% de la marge nette estimée). Exemples : montres, objectifs photo, pédales d'effet, jeux vidéo, LEGO, casques. Ne jamais mettre `ship_ok = true` pour les meubles, amplis à lampes encombrants, outillage lourd.
+
+**Vinted et Wallapop** : plateformes nationales — ne pas inclure de `city` dans ces requêtes (le paramètre est ignoré côté API).
 
 ## Format de sortie (JSON strict)
 
@@ -79,15 +87,18 @@ Si une stratégie utilisateur est active (créée via `dealradar-strategy-create
   "queries": [
     {"platform": "leboncoin", "keywords": "marantz ampli vintage", "price_max": 240, "city": "Nice"},
     {"platform": "vinted", "keywords": "seiko automatique", "price_max": 240},
+    {"platform": "leboncoin", "keywords": "seiko automatique", "price_max": 240, "city": "Nice"},
+    {"platform": "leboncoin", "keywords": "seiko automatique", "price_max": 240, "city": "Paris"},
+    {"platform": "leboncoin", "keywords": "seiko automatique", "price_max": 240, "city": "Lyon"},
     {"platform": "wallapop", "keywords": "canon ae-1", "price_max": 240}
   ],
   "capital_used": 300,
   "active_strategies_count": 2,
-  "rationale": "explication brève des choix de niche"
+  "rationale": "explication brève des choix de niche et des villes sélectionnées"
 }
 ```
 
-Génère 10-15 requêtes variées couvrant **les niches prioritaires** + **les stratégies actives**. Diversifie les plateformes (priorité LBC pour main-propre, Vinted pour mode/audio mobile, eBay pour références cross-platform).
+Génère **15-25 requêtes** couvrant les niches prioritaires + stratégies actives. Pour les niches `ship_ok`, dupliquer la requête LBC sur Nice / Paris / Lyon. Pour les niches main-propre uniquement, une seule requête LBC sur Nice. Diversifie les plateformes (LBC pour occasion FR, Vinted pour audio/mode portable, Wallapop pour européen, eBay pour cross-platform prix référence).
 
 ## Tools utilisés (runtime Hermes)
 
@@ -100,6 +111,8 @@ Génère 10-15 requêtes variées couvrant **les niches prioritaires** + **les s
 - **Jamais une catégorie bannie** (même si une stratégie active la demande explicitement, refuser)
 - **Output JSON strict** — pas de prose autour, parser strict côté triage
 - **Tout en français** dans `keywords` (les annonces FR sont en français)
+- **Multi-villes LBC** uniquement pour les niches `ship_ok` — ne pas dupliquer les requêtes main-propre
+- **Pas de `city`** dans les requêtes Vinted et Wallapop (plateformes nationales)
 
 ## See also
 
